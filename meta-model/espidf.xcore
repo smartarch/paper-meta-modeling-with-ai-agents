@@ -127,6 +127,13 @@ class StageDependency extends Entity {
 
 	refers Component component
 	String stage
+
+	@SemiFormal(
+		context = "A reason states the rationale for the enclosing stage dependency: why the enclosing component's stage requires the named `component`'s `stage` to have completed first. It is the short, structural counterpart of `description`.",
+		authoring = "Write one concise sentence in present tense. State the specific service, state, or resource that the named `component`'s `stage` makes available and that the enclosing stage relies on. Avoid generic phrases such as 'X must be initialized first' that do not name what is provided.",
+		review = "(i) the rationale names a specific service, state, or resource; (ii) the named provider is the depended-on `component` and `stage`; (iii) the reason is consistent with `description` when both are present; (iv) the dependency is necessary rather than incidental. The reason is complete once these hold.",
+		generateCode = "Use the reason to add a brief comment at the corresponding `<component>_init(stage)` call site in `main`, explaining why the topological ordering places this stage after the depended-on stage."
+	)
 	String reason
 }
 
@@ -217,6 +224,13 @@ class Message {
 
 class Field extends Entity {
 	String dataType
+
+	@SemiFormal(
+		context = "A field documentation explains the meaning, unit, source, and constraints of one structured payload or message field used by an event, queue message, or call connector. The documentation, not the data type alone, fixes how the value is to be interpreted.",
+		authoring = "Write one short sentence in present tense. State what the value represents, its unit, byte order or encoding when relevant, and the source or computation that produces it (e.g., 'from esp_timer_get_time()'). Do not restate the field id.",
+		review = "(i) the documentation is consistent with `dataType`; (ii) unit, encoding, byte order, or special values (e.g., zero meaning 'never set') are stated when the data type alone does not fix them; (iii) the source or producing operation is identifiable; (iv) the documentation does not duplicate the field id. The documentation is complete once these hold.",
+		generateCode = "Use the documentation to emit a field-level comment on the generated payload struct member, choose a parser or formatter consistent with the stated encoding (e.g., network byte order conversions for IPv4 addresses), and preserve the stated unit at every read and write site."
+	)
 	String documentation
 }
 
@@ -234,6 +248,12 @@ class Event extends Entity {
 }
 
 class Metric extends Entity {
+	@SemiFormal(
+		context = "A metric describes an observable quantity recorded by the enclosing component for continuous observation, alerting, or aggregation. The documentation fixes what the metric measures and how its value evolves; metric meaning must remain stable across revisions.",
+		authoring = "Write one short sentence in present tense. State the measured quantity, the unit when not implied by the quantity, the reset or aggregation semantics (e.g., 'since boot', 'rolling 60 s window'), and the operation or moment that updates it (e.g., 'increments in the tick callback').",
+		review = "(i) exactly one quantity is named; (ii) the unit is stated when not implied; (iii) reset or aggregation semantics are explicit; (iv) the update site is identifiable from declared callbacks, tasks, connectors, or events; (v) the metric is genuinely observed continuously rather than a one-off occurrence better expressed as an event. The documentation is complete once these hold.",
+		generateCode = "Use the documentation to choose counter or gauge semantics, name the generated metric storage from `identification`, and place the increment or assignment at the precise behavior point named in the prose. Do not invent a hidden metrics transport unless the project adds one explicitly."
+	)
 	String documentation
 }
 
@@ -271,12 +291,32 @@ class ComponentTestPlan extends Entity {
 }
 
 class TestCase {
+	@SemiFormal(
+		context = "A test case states one observable behavior or invariant that the generated component test must verify. Its scope is fixed by the enclosing `ComponentTestPlan`; initialization-failure paths are out of scope because init errors are fatal.",
+		authoring = "State exactly one observable behavior in present tense. Phrase it as a predicate that becomes true under stated input or stimulus. Reference only declared events, state variables, configurations, or connector calls. Do not describe implementation steps such as function bodies, library calls, or internal control flow.",
+		review = "(i) one and only one observable predicate is stated; (ii) every entity referenced is declared in the surrounding component contract; (iii) the predicate is decidable from artifacts a test harness can observe (events on the bus, return values of call connectors, state exposed through declared connectors); (iv) implementation details are not asserted. The case is complete once these hold.",
+		generateCode = "Emit one Unity `TEST_CASE(\"name\", \"[tags]\")` per text entry under the test app at the enclosing plan's `path`. The generated assertion must capture exactly the stated predicate; the case name must trace back unambiguously to the text. Use `WHOLE_ARCHIVE` registration so `TEST_CASE` entries are not dead-stripped."
+	)
 	String text
 }
 
 class ApplicationTestPlan extends Entity {
+	@SemiFormal(
+		context = "An application test plan entry expresses one application-level acceptance requirement, verified at full-system scope rather than against a single component in isolation. The acceptance surface may be a user-visible outcome or a declared observability surface (event, metric, trace) that the application intentionally exposes.",
+		authoring = "Write one short paragraph in present tense. State the user-visible outcome or declared observability surface that must hold, the precondition or trigger that brings it about, and any timing budget or stability window. Do not duplicate component-level connector mechanics unless they are themselves the intended acceptance surface.",
+		review = "(i) the outcome is observable at application scope, not only inside one component; (ii) the timing budget or stability window is stated when relevant; (iii) the requirement does not duplicate a `ComponentTestPlan` test; (iv) when `testExecution` is `manual`, `operatorAction` is provided. The doc is complete once these hold.",
+		generateCode = "Use the doc to generate a pytest case under `tests/<scope>/`, where `<scope>` is the dominating component or the cooperating feature/domain. Apply `@pytest.mark.manual` when `testExecution` is `manual` so it is excluded from automated runs via `-m \"not manual\"`. Encode the timing budget as bounded polling with explicit timeouts; assert against declared events, metrics, or external observable surfaces, not internal implementation."
+	)
 	String doc
+
 	String testExecution
+
+	@SemiFormal(
+		context = "An operator action describes the human-performed steps required by a manual application test. It is consumed by the human tester and by documentation generation rather than by code generation. It applies only when `testExecution` is `manual` and is ignored otherwise.",
+		authoring = "Write a short sequence of imperative steps in present tense. For each step, state the precondition under which it is performed, the exact operator action, the observable outcome the test will wait for, and the timeout for that wait. Do not include steps already performed by the automated test driver, and do not embed implementation details of the system under test.",
+		review = "(i) each step has a single, unambiguous operator action; (ii) every wait has an explicit timeout; (iii) the steps are reproducible without further explanation by someone who has not seen the system before; (iv) the enclosing plan entry has `testExecution = manual`. The action is complete once these hold.",
+		generateDocumentation = "Use the action to generate the operator runbook section for this acceptance test. Render the steps as a numbered list with explicit timeouts and observable outcomes; cross-reference the corresponding pytest case marked `@pytest.mark.manual`."
+	)
 	String operatorAction
 }
 
