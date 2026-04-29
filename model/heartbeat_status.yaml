@@ -1,0 +1,163 @@
+component:
+  id: heartbeat_status
+
+  description: |
+    Provides a web-page handler which shows the status of the heartbeat component. 
+    Has no knowledge of WiFi or httpd lifecycle; all HTTP serving is mediated
+    through the http_server component.
+
+  espidf_dependencies:
+    - esp_event
+    - esp_http_server
+    - esp_timer
+    - log
+
+  configuration:
+    - id: HEARTBEAT_STATUS_URI
+      type: string
+      default: /
+      description: URI path served by this component.
+
+  initialization:
+    stages:
+      - id: setup
+        description: |
+          Subscribe to HEARTBEAT_EVENT_TICK on the application event bus.
+          Register the HTTP GET handler with http_server via http_server_register_uri.
+        depends_on:
+          - component: http_server
+            stage: setup
+            reason: http_server must be initialized before URI handlers can be registered.
+          - component: heartbeat
+            stage: setup
+            reason: heartbeat must have registered its event base before subscribing.
+
+  callbacks:
+    - id: heartbeat_tick_callback
+      description: |
+        Handles HEARTBEAT_EVENT_TICK from the application event bus. Reads timestamp_us from
+        the event payload. Increments ticks_received. Computes last_interval_ms as the
+        difference between the received timestamp_us and the previously stored
+        last_tick_timestamp_us (converted to milliseconds); sets last_interval_ms to zero if
+        this is the first tick. Stores the received timestamp_us into last_tick_timestamp_us.
+        Runs in the ESP-IDF event task context. Blocks the default event loop for its duration.
+    - id: http_get_handler
+      description: |
+        URI handler invoked by the httpd task when an HTTP GET request arrives.
+        Reads cached state, sends HTTP 200 with an HTML body showing tick count,
+        last interval, and time since last tick.
+
+  tasks: []
+
+  internal_state:
+    variables:
+      - id: ticks_received
+        type: uint32_t
+        initial: 0
+        description: |
+          Count of HEARTBEAT_EVENT_TICK events received since init.
+      - id: last_tick_timestamp_us
+        type: int64_t
+        initial: 0
+        description: |
+          The timestamp_us value from the most recently received HEARTBEAT_EVENT_TICK payload.
+          Sourced directly from the publisher; not measured locally. Zero until the first tick.
+      - id: last_interval_ms
+        type: uint32_t
+        initial: 0
+        description: |
+          Interval in milliseconds between the last two received ticks, computed from
+          consecutive payload timestamp_us values. Zero until at least two ticks have been
+          received.
+      - id: requests_total
+        type: uint32_t
+        initial: 0
+        description: |
+          Total HTTP GET requests handled since boot.
+
+  connectors:
+    - id: heartbeat_tick_sub
+      style: event_pubsub
+      description: Receives heartbeat tick notifications to update cached state.
+      bus: application_message_bus
+      role: subscriber
+      event:
+        base: HEARTBEAT_EVENT
+        id: HEARTBEAT_EVENT_TICK
+      handler: heartbeat_tick_callback
+      payload:
+        - id: timestamp_us
+          type: int64_t
+          documentation: Timestamp in microseconds when the tick was emitted, from esp_timer_get_time().
+
+    - id: register_uri_handler
+      style: call
+      description: |
+        Calls http_server_register_uri during initialization to register the HTTP GET
+        handler. Passes the static uri_config by reference.
+      role: caller
+      call:
+        scope: local
+        function: http_server_register_uri
+        request:
+          fields:
+            - id: uri_config
+              type: const httpd_uri_t *
+              documentation: Reference to the static uri_config.
+        response:
+          fields:
+            - id: status
+              type: esp_err_t
+              documentation: ESP_OK on success.
+
+  events:
+    - id: HEARTBEAT_STATUS_TRACE_TICK_RECEIVED
+      description: A heartbeat tick was received and cached state updated.
+      severity: debug
+      fields:
+        - id: ticks_received
+          type: uint32_t
+          documentation: Updated tick counter.
+    - id: HEARTBEAT_STATUS_TRACE_PAGE_SERVED
+      description: An HTTP GET request was handled.
+      severity: debug
+      fields:
+        - id: http_status
+          type: uint16_t
+          documentation: HTTP status code sent.
+
+  metrics:
+    - id: heartbeat_status_requests_total
+      documentation: Total number of HTTP GET requests served since boot.
+    - id: heartbeat_status_ticks_received_total
+      documentation: Total number of HEARTBEAT_EVENT_TICK events received since boot.
+
+  alerts:
+    - id: heartbeat_status_no_ticks
+      description: |
+        No heartbeat tick has been emitted for more than 2000 ms.
+      severity: error
+      trigger:
+        type: event_absence
+        event: HEARTBEAT_STATUS_TRACE_TICK_RECEIVED
+        window_ms: 3000
+
+  component_test_plan:
+    - id: page
+      path: test_apps/page
+      description: Validates the HTTP GET handler output.
+      tests:
+        - HTTP 200 response contains tick count, last interval, and time since last tick
+        - response has Content-Type text/html; charset=utf-8
+
+    - id: subscription
+      path: test_apps/subscription
+      description: Validates that heartbeat ticks update cached state.
+      tests:
+        - receiving HEARTBEAT_EVENT_TICK increments ticks_received
+        - receiving two ticks with distinct timestamp_us values sets last_interval_ms to the correct non-zero difference in milliseconds
+        - last_interval_ms is zero after the first tick and non-zero after the second
+
+  application_test_plan:
+    - id: heartbeat_status_page_accessible
+      doc: Status page is available (returns 200) after a 10 seconds delay needed for WiFi to connect.

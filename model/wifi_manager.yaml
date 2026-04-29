@@ -1,0 +1,166 @@
+component:
+  id: wifi_manager
+
+  description: |
+    Manages WiFi STA connection. 
+
+  espidf_dependencies:
+    - esp_wifi
+    - esp_event
+    - esp_netif
+    - log
+
+  configuration:
+    - id: WIFI_MANAGER_SSID
+      type: string
+      default: myssid
+      description: SSID of the WiFi access point to connect to.
+      environment_specific: true
+    - id: WIFI_MANAGER_PASSWORD
+      type: string
+      default: mypassword
+      description: Password of the WiFi access point.
+      environment_specific: true
+    - id: WIFI_MANAGER_MAX_RETRIES
+      type: int
+      default: 5
+      description: Maximum number of reconnection attempts before giving up.
+      range: [0, 255]
+
+  initialization:
+    prerequisites:
+      - resource: nvs
+        init_call: nvs_flash_init
+        description: Required by the WiFi driver to persist calibration data and credentials.
+      - resource: esp_netif
+        init_call: esp_netif_init
+        description: Required before esp_netif_create_default_wifi_sta() can be called.
+      - resource: default_event_loop
+        init_call: esp_event_loop_create_default
+        description: Required before WiFi and IP event handlers can be registered.
+
+    stages:
+      - id: setup
+        description: |
+          Create STA netif instance via esp_netif_create_default_wifi_sta().
+          Initialize WiFi with default config. Register WiFi and IP event handlers
+          on the default event loop. Configure WiFi STA with SSID and password from CONFIG_*.
+          Start the WiFi driver and initiate connection.
+
+  callbacks:
+    - id: wifi_event_callback
+      description: |
+        Handles internal WiFi driver events (WIFI_EVENT_STA_START, WIFI_EVENT_STA_CONNECTED,
+        WIFI_EVENT_STA_DISCONNECTED) from the default event loop. Initiates connection on
+        STA_START, manages retry logic on STA_DISCONNECTED. On disconnect, if retry_count
+        is below WIFI_MANAGER_MAX_RETRIES, increments retry_count, publishes
+        WIFI_MANAGER_EVENT_DISCONNECTED, emits WIFI_MANAGER_TRACE_RETRY, and calls
+        esp_wifi_connect. If retry_count has reached WIFI_MANAGER_MAX_RETRIES, publishes
+        WIFI_MANAGER_EVENT_DISCONNECTED and emits WIFI_MANAGER_TRACE_RETRY_EXHAUSTED.
+        Runs in the ESP-IDF event task context. Blocks the default event loop for its duration.
+    - id: ip_event_callback
+      description: |
+        Handles IP_EVENT_STA_GOT_IP from the default event loop. Resets retry_count, stores
+        ip_addr, and publishes WIFI_MANAGER_EVENT_CONNECTED. Runs in the ESP-IDF event task
+        context and blocks the default event loop for its duration.
+
+  tasks: []
+
+  internal_state:
+    variables:
+      - id: retry_count
+        type: uint8_t
+        initial: 0
+        description: |
+          Current reconnection retry count. Reset to 0 on successful connection.
+          Incremented on each disconnect.
+      - id: ip_addr
+        type: uint32_t
+        initial: 0
+        description: |
+          IPv4 address in network byte order, assigned by DHCP. Valid only while connected.
+          Reset to 0 on disconnect.
+
+  connectors:
+    - id: wifi_connected_event
+      style: event_pubsub
+      description: |
+        Published each time the station obtains an IP address from DHCP. Carriers the
+        assigned IPv4 address.
+      bus: application_message_bus
+      role: publisher
+      event:
+        base: WIFI_MANAGER_EVENT
+        id: WIFI_MANAGER_EVENT_CONNECTED
+      payload:
+        - id: ip_addr
+          type: uint32_t
+          documentation: Assigned IPv4 address in network byte order.
+
+    - id: wifi_disconnected_event
+      style: event_pubsub
+      description: |
+        Published each time the station loses its association, including during retry attempts.
+      bus: application_message_bus
+      role: publisher
+      event:
+        base: WIFI_MANAGER_EVENT
+        id: WIFI_MANAGER_EVENT_DISCONNECTED
+      payload: []
+
+  events:
+    - id: WIFI_MANAGER_TRACE_CONNECTED
+      description: WiFi connected and IP address obtained.
+      severity: info
+      fields:
+        - id: ip_addr
+          type: uint32_t
+          documentation: Assigned IPv4 address in network byte order.
+    - id: WIFI_MANAGER_TRACE_DISCONNECTED
+      description: WiFi association lost.
+      severity: warn
+      fields: []
+    - id: WIFI_MANAGER_TRACE_RETRY
+      description: Reconnection attempt initiated.
+      severity: warn
+      fields:
+        - id: retry_count
+          type: uint8_t
+          documentation: Current retry attempt number (1-based).
+    - id: WIFI_MANAGER_TRACE_RETRY_EXHAUSTED
+      description: Maximum retry count reached.
+      severity: error
+      fields: []
+
+  metrics:
+    - id: wifi_manager_connect_attempts_total
+      documentation: Total number of connection attempts (initial + retries) since boot.
+    - id: wifi_manager_disconnections_total
+      documentation: Total number of disconnect events since boot.
+    - id: wifi_manager_retry_exhaustions_total
+      documentation: Total number of times the retry limit was reached since boot.
+
+  alerts:
+    - id: wifi_unstable
+      description: |
+        WiFi has disconnected more than 3 times within 60 seconds.
+      severity: warn
+      trigger:
+        type: event_rate
+        event: WIFI_MANAGER_TRACE_DISCONNECTED
+        window_ms: 60000
+        threshold: 3
+
+  component_test_plan:
+    - id: connection_events
+      path: test_apps/connection_events
+      description: Validates published connection events and retry policy using stubbed WiFi/IP driver events.
+      tests:
+        - IP_EVENT_STA_GOT_IP publishes WIFI_MANAGER_EVENT_CONNECTED with the assigned non-zero IP address
+        - WIFI_EVENT_STA_DISCONNECTED below WIFI_MANAGER_MAX_RETRIES publishes WIFI_MANAGER_EVENT_DISCONNECTED and emits WIFI_MANAGER_TRACE_RETRY
+        - disconnect after WIFI_MANAGER_MAX_RETRIES publishes WIFI_MANAGER_EVENT_DISCONNECTED and emits WIFI_MANAGER_TRACE_RETRY_EXHAUSTED
+
+  application_test_plan:
+    - id: wifi_connects_on_start
+      doc: |
+        After application initialization, WiFi connects to the configured AP and obtains an IP address within 10 seconds.

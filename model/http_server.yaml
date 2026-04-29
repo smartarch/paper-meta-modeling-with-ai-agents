@@ -1,0 +1,107 @@
+component:
+  id: http_server
+
+  description: |
+    ESP-IDF httpd wrapper. The server binds to INADDR_ANY and accepts connections as
+    soon as an IP address is available; it survives WiFi disconnections and becomes reachable again
+    automatically after reconnect without requiring a restart.
+
+  espidf_dependencies:
+    - esp_http_server
+    - log
+
+  configuration:
+    - id: HTTP_SERVER_PORT
+      type: int
+      default: 80
+      description: TCP port for the HTTP server.
+      range: [1, 65535]
+    - id: HTTP_SERVER_MAX_HANDLERS
+      type: int
+      default: 8
+      description: Maximum number of URI handlers that can be registered.
+      range: [1, 32]
+
+  initialization:
+    stages:
+      - id: setup
+        description: |
+          Initialize internal handler storage to zero. Start the HTTP server via httpd_start()
+          on HTTP_SERVER_PORT. Register all handlers that have been queued via
+          http_server_register_uri prior to this stage with the running httpd instance.
+
+  tasks: []
+
+  internal_state:
+    variables:
+      - id: handler_count
+        type: uint8_t
+        initial: 0
+        description: |
+          Number of URI handler entries currently stored.
+      - id: handlers
+        type: const httpd_uri_t *[HTTP_SERVER_MAX_HANDLERS]
+        description: |
+          Fixed-size array of retained references to caller-owned httpd_uri_t registrations.
+          Survives WiFi disconnections. Each referenced object must remain valid until
+          unregistered or until poweroff.
+
+  connectors:
+    - id: register_uri_handler
+      style: call
+      description: |
+        Synchronous call to register a URI handler. The uri_config pointer is retained by
+        reference from call time until poweroff; the pointed-to httpd_uri_t and any data it
+        transitively references must remain valid for that duration. If the HTTP server has
+        already been started when this call is made, the handler is immediately installed
+        into the running httpd instance in addition to being stored. Safe to call before
+        setup completes (before WiFi connects).
+      role: callee
+      call:
+        scope: local
+        function: http_server_register_uri
+        request:
+          fields:
+            - id: uri_config
+              type: const httpd_uri_t *
+              documentation: URI handler configuration.
+        response:
+          fields:
+            - id: status
+              type: esp_err_t
+              documentation: ESP_OK on success.
+
+  events:
+    - id: HTTP_SERVER_TRACE_HANDLER_REGISTERED
+      description: A URI handler was stored successfully.
+      severity: info
+      fields:
+        - id: uri
+          type: const char *
+          documentation: URI string of the registered handler.
+
+  metrics: []
+
+  alerts: []
+
+  component_test_plan:
+    - id: handlers
+      path: test_apps/handlers
+      description: Tests for register URI handler call connectors.
+      tests:
+        - registering up to HTTP_SERVER_MAX_HANDLERS handlers succeeds
+        - registering beyond HTTP_SERVER_MAX_HANDLERS returns ESP_ERR_NO_MEM
+
+  application_test_plan:
+    - id: http_server_reachable
+      doc: HTTP server is reachable after a 10 seconds delay needed for WiFi to connect.
+    - id: http_server_accessible_after_reconnect
+      doc: |
+        After a WiFi disconnect and reconnect cycle, the HTTP server is reachable without
+        any explicit restart. The server binds to INADDR_ANY and accepts new connections
+        as soon as the IP address is restored.
+      test_execution: manual
+      operator_action: |
+        After confirming the server responds on the initial connection, the operator briefly
+        disconnects the WiFi AP and waits for reconnection (up to 30 s). The test then
+        re-issues the HTTP request and asserts a 200 response.

@@ -1,0 +1,83 @@
+component:
+  id: heartbeat
+
+  description: |
+    Periodic heartbeat publisher.
+
+  espidf_dependencies:
+    - esp_timer
+    - esp_event
+    - log
+
+  configuration:
+    - id: HEARTBEAT_PERIOD_MS
+      type: int
+      default: 1000
+      description: Heartbeat period in milliseconds
+      range: [100, 2000]
+
+  initialization:
+    stages:
+      - id: setup
+        description: |
+          Create the periodic esp_timer and start it at the configured period.
+
+  callbacks:
+    - id: heartbeat_tick_callback
+      description: |
+        Invoked by heartbeat_timer. Runs in the ESP-IDF esp_timer task context; blocks
+        all other esp_timer callbacks for its duration. On each invocation:
+        increments tick_count and posts HEARTBEAT_EVENT_TICK
+        with timestamp_us as payload, emits HEARTBEAT_TRACE_TICK_EMITTED.
+
+  tasks: []
+
+  internal_state:
+    variables:
+      - id: tick_count
+        type: uint32_t
+        initial: 0
+        description: |
+          Counter of emitted heartbeat ticks since init. Wraps at UINT32_MAX.
+
+  connectors:
+    - id: heartbeat_tick_event
+      style: event_pubsub
+      description: Publishes periodic heartbeat ticks to other components.
+      bus: application_message_bus
+      role: publisher
+      event:
+        base: HEARTBEAT_EVENT
+        id: HEARTBEAT_EVENT_TICK
+      payload:
+        - id: timestamp_us
+          type: int64_t
+          documentation: Timestamp in microseconds when the tick was emitted, from esp_timer_get_time().
+
+  events:
+    - id: HEARTBEAT_TRACE_TICK_EMITTED
+      description: A periodic tick was emitted.
+      severity: debug
+      fields:
+        - id: tick_count
+          type: uint32_t
+          documentation: Monotonic tick counter since initialization.
+        - id: timestamp_us
+          type: int64_t
+          documentation: Timestamp in microseconds when tick was emitted.
+
+  metrics: []
+
+  alerts: []
+
+  component_test_plan:
+    - id: timing
+      path: test_apps/timing
+      description: Timing, counter, interval computation, and observability behavior.
+      tests:
+        - HEARTBEAT_EVENT_TICK is published at the configured interval
+        - tick_count increments by one on each tick
+
+  application_test_plan:
+    - id: heartbeat_periodic_output
+      doc: The application emits HEARTBEAT_TRACE_TICK_EMITTED at the configured interval.

@@ -1,0 +1,287 @@
+package cz.smartarch.aidev.semiformal.compaid.espidf
+
+
+annotation "cz.smartarch.aidev.semiformal" as SemiFormal
+
+abstract class Entity {
+	String identification
+}
+
+enum Type {
+	INT
+	STRING
+	BOOLEAN
+	CUSTOM
+}
+
+enum ConnectorKind {
+	EVENT_PUBSUB
+	CALL
+}
+
+enum ConnectorRole {
+	PUBLISHER
+	SUBSCRIBER
+	CALLER
+	CALLEE
+}
+
+enum Severity {
+	DEBUG
+	INFO
+	WARN
+	ERROR
+}
+
+enum TriggerKind {
+	EVENT_ABSENCE
+	EVENT_RATE
+}
+
+enum CallScope {
+	LOCAL
+	EXTERNAL
+}
+
+class Component extends Entity {
+	@SemiFormal(
+		context = "A component is the authoritative specification of one ESP-IDF software component. Its description explains the component's responsibility within the application and frames the meaning of its configurations, callbacks, tasks, connectors, events, metrics, alerts, and tests.",
+		authoring = "Write one short paragraph in present tense. State the component's main responsibility, the subsystem or hardware/service it controls, and the externally visible behavior it provides. Do not restate only the component identifier. Mention important lifecycle or concurrency assumptions when they affect how other components use it.",
+		review = "(i) the prose describes a single coherent component responsibility; (ii) the prose is consistent with the declared dependencies, connectors, events, and tasks; (iii) it does not introduce undeclared external interactions. The description is complete once these hold.",
+		generateCode = "Use the description to choose cohesive source-file organization, comments, and lifecycle wiring for the component. Preserve the stated responsibility boundary and do not generate behavior that belongs to another component."
+	)
+	String description
+
+	refers ESPIDFDependency[] dependencies
+
+	contains Configuration[] configurations
+	contains Initialization initialization
+	contains Callback[] callbacks
+	contains Task[] tasks
+	contains InternalState internalState
+	contains Connector[] connectors
+	contains Event[] events
+	contains Metric[] metrics
+	contains Alert[] alerts
+	contains ComponentTestPlan[] componentTestPlans
+	contains ApplicationTestPlan[] applicationTestPlans
+}
+
+class Configuration extends Entity {
+	@SemiFormal(
+		context = "A configuration entry describes a value that parameterizes the enclosing component and may affect generated initialization, runtime behavior, or deployment-specific settings.",
+		authoring = "Write one concise sentence or paragraph in present tense. Explain what the value controls, its unit or format when relevant, valid range or special values, and whether changing it requires rebuild, restart, or reinitialization.",
+		review = "(i) the prose agrees with `valueType`, `customType`, `defaultValue`, `range`, and `environmentSpecific`; (ii) any unit, bound, or special value mentioned in prose is reflected structurally when possible; (iii) the effect of the configuration is clear to a user and generator. The description is complete once these hold.",
+		generateCode = "Use the description to name generated constants or accessors, add useful comments, and apply validation or conversion implied by the declared type, range, default value, and environment-specific flag."
+	)
+	String description
+
+	Type valueType = "CUSTOM"
+	String customType
+	String defaultValue
+	String range
+	boolean environmentSpecific
+}
+
+class ESPIDFDependency extends Entity {
+}
+
+class Initialization {
+	contains InitializationPrerequisite[] prerequisites
+	contains InitializationStage[] stages
+}
+
+class InitializationPrerequisite extends Entity {
+	@SemiFormal(
+		context = "An initialization prerequisite records a resource, subsystem, or call that must be available before the enclosing component can be initialized safely.",
+		authoring = "Write one short sentence in present tense. State what must already exist or have been initialized, why it is needed, and which `resource` or `initCall` provides it.",
+		review = "(i) the prose matches `resource` and `initCall`; (ii) the prerequisite is genuinely required before initialization; (iii) the consequence of the missing prerequisite is understandable. The description is complete once these hold.",
+		generateCode = "Use the description to order initialization, emit checks or comments for required resources, and avoid generating initialization code before the prerequisite is satisfied."
+	)
+	String description
+
+	String resource
+	String initCall
+}
+
+class InitializationStage extends Entity {
+	@SemiFormal(
+		context = "An initialization stage describes one ordered step in the component lifecycle and the assumptions that hold before and after that step.",
+		authoring = "Write one short paragraph in present tense. State what the stage does, which dependencies from `dependsOn` it relies on, and what state or service becomes available after the stage completes.",
+		review = "(i) the prose agrees with the listed `dependsOn` entries; (ii) it does not rely on undeclared components or stages; (iii) the postcondition of the stage is clear. The description is complete once these hold.",
+		generateCode = "Use the description to place initialization calls into the correct ESP-IDF lifecycle order and to preserve dependency ordering between generated component initialization stages."
+	)
+	String description
+
+	contains StageDependency[] dependsOn
+}
+
+class StageDependency extends Entity {
+	@SemiFormal(
+		context = "A stage dependency explains why an initialization stage of the enclosing component depends on another component or stage.",
+		authoring = "Write one concise sentence in present tense. Name the required component or stage and explain the specific service, state, or resource that must be available.",
+		review = "(i) the prose matches `component` and `stage`; (ii) `reason` and the prose state the same dependency rationale; (iii) the dependency is necessary rather than incidental. The description is complete once these hold.",
+		generateCode = "Use the description to justify generated initialization ordering and to add comments where dependency ordering is not obvious from the structure alone."
+	)
+	String description
+
+	refers Component component
+	String stage
+	String reason
+}
+
+class Callback extends Entity {
+	@SemiFormal(
+		context = "A callback describes a function supplied by or invoked within the component in response to an ESP-IDF, driver, or application event.",
+		authoring = "Write one short paragraph in present tense. State when the callback is invoked, the execution context or task it runs in, what inputs it observes, what side effects it may perform, and whether it may block.",
+		review = "(i) the invocation condition is clear; (ii) execution context, blocking behavior, and side effects are stated when relevant; (iii) the prose is consistent with related connectors, events, tasks, and state variables. The description is complete once these hold.",
+		generateCode = "Use the description to generate the callback signature, registration, body outline, synchronization, and comments respecting the stated execution context and blocking constraints."
+	)
+	String description
+}
+
+class Task extends Entity {
+	@SemiFormal(
+		context = "A task describes a FreeRTOS or ESP-IDF execution activity owned by the component.",
+		authoring = "Write one short paragraph in present tense. State the task's purpose, when it starts and stops, its triggering or loop behavior, important timing constraints, and which state, connectors, events, or metrics it uses.",
+		review = "(i) lifecycle, trigger, and termination behavior are clear; (ii) the prose is consistent with declared state, connectors, events, and metrics; (iii) concurrency assumptions and blocking behavior are stated when relevant. The description is complete once these hold.",
+		generateCode = "Use the description to create the task function, scheduling and loop structure, synchronization, and cleanup code while preserving the stated timing and lifecycle behavior."
+	)
+	String description
+}
+
+class InternalState {
+	contains StateVariable[] variables
+}
+
+class StateVariable extends Entity {
+	@SemiFormal(
+		context = "A state variable describes internal mutable or cached state owned by the enclosing component.",
+		authoring = "Write one concise sentence or paragraph in present tense. State what the variable represents, its ownership and lifetime, how it is initialized, and which callbacks, tasks, or connectors read or update it.",
+		review = "(i) the prose agrees with `dataType` and `initialValue`; (ii) ownership, lifetime, and update responsibilities are clear; (iii) concurrency or synchronization requirements are stated when relevant. The description is complete once these hold.",
+		generateCode = "Use the description to declare the variable, initialize it, protect concurrent access, and release resources according to the stated ownership and lifetime."
+	)
+	String description
+
+	String dataType
+	String initialValue
+}
+
+abstract class Connector extends Entity {
+	ConnectorKind connectorKind
+	ConnectorRole role
+}
+
+class EventPubSubConnector extends Connector {
+	@SemiFormal(
+		context = "An event-pub/sub connector describes publication to or subscription from an event bus between the enclosing component and other components or ESP-IDF services.",
+		authoring = "Write one short paragraph in present tense. State whether the connector publishes or subscribes, name the event base and event id, describe the payload fields, and explain when the handler is invoked or when the event is emitted.",
+		review = "(i) the prose agrees with `role`, `connectorKind`, `bus`, `event`, `handler`, and `payload`; (ii) every payload field used in prose is declared; (iii) publication or subscription direction is unambiguous. The description is complete once these hold.",
+		generateCode = "Use the description to generate event registration or posting code, handler dispatch, payload construction or decoding, and comments that preserve the stated direction and event semantics."
+	)
+	String description
+
+	String bus
+	contains EventSelector event
+	String handler
+	contains Field[] payload
+}
+
+class EventSelector {
+	String base
+	String eventId
+}
+
+class CallConnector extends Connector {
+	@SemiFormal(
+		context = "A call-based connector describes an invocation made from the enclosing component to a target function on another component.",
+		authoring = "Write one short paragraph in present tense. Name the target function, state what is passed and returned. If any pointer is exchanged, state the ownership rule explicitly (e.g., 'the callee retains the reference until deinit').",
+		review = "(i) the target named in prose matches `call.function`; (ii) `role` and `connectorKind` agree with the prose; (iii) whenever a pointer is exchanged, an ownership rule is stated. The description is complete once these hold.",
+		generateCode = "Emit the call to `call.function` in the appropriate ESP-IDF lifecycle stage. Honour the stated ownership rule: when the callee retains a reference, keep the pointed-to object alive until deinit."
+	)
+	String description
+
+	contains Call call
+}
+
+class Call {
+	CallScope scope = "LOCAL"
+	String function
+	contains Message request
+	contains Message response
+}
+
+class Message {
+	contains Field[] fields
+}
+
+class Field extends Entity {
+	String dataType
+	String documentation
+}
+
+class Event extends Entity {
+	@SemiFormal(
+		context = "An event describes an observable condition emitted by the component for other components, tests, monitoring, or alerting.",
+		authoring = "Write one short paragraph in present tense. State what condition the event represents, when it is emitted, the meaning of its fields, and how `severity` should be interpreted.",
+		review = "(i) the prose agrees with `severity` and declared `fields`; (ii) emission conditions are specific enough for code generation and tests; (iii) consumers can understand the event without reading implementation code. The description is complete once these hold.",
+		generateCode = "Use the description to generate event definitions, emission sites, payload population, logging, and test assertions consistent with the stated condition and severity."
+	)
+	String description
+
+	Severity severity = "INFO"
+	contains Field[] fields
+}
+
+class Metric extends Entity {
+	String documentation
+}
+
+class Alert extends Entity {
+	@SemiFormal(
+		context = "An alert describes a noteworthy or abnormal situation derived from events or metrics and intended for monitoring, diagnostics, or operator attention.",
+		authoring = "Write one short paragraph in present tense. State what problem or condition the alert signals, how the `trigger` detects it, what `severity` means, and what operator or system reaction is expected.",
+		review = "(i) the prose agrees with `severity` and `trigger`; (ii) the triggering event, window, and threshold semantics are clear when present; (iii) the expected reaction is actionable. The description is complete once these hold.",
+		generateCode = "Use the description to generate monitoring checks, alert messages, logging, and test expectations that preserve the stated trigger and severity semantics."
+	)
+	String description
+
+	Severity severity = "WARN"
+	contains Trigger trigger
+}
+
+class Trigger {
+	TriggerKind triggerKind
+	refers Event event
+	int windowMs
+	int threshold
+}
+
+class ComponentTestPlan extends Entity {
+	@SemiFormal(
+		context = "A component test plan describes how the enclosing component should be tested in isolation or with controlled collaborators.",
+		authoring = "Write one short paragraph in present tense. State the test scope, fixtures or mocks, main behaviors to verify, and how the listed `tests` and `path` relate to generated or existing tests.",
+		review = "(i) the prose is consistent with `path` and the listed test cases; (ii) the plan covers the component's important configurations, callbacks, connectors, events, and state changes; (iii) expected outcomes are clear enough for test generation. The description is complete once these hold.",
+		generateCode = "Use the description to generate or organize component tests at `path`, create fixtures and mocks, and derive assertions for the listed test cases and described behaviors."
+	)
+	String description
+
+	String path
+	contains TestCase[] tests
+}
+
+class TestCase {
+	String text
+}
+
+class ApplicationTestPlan extends Entity {
+	String doc
+	String testExecution
+	String operatorAction
+}
+
+
+class CONTAINER {
+	contains Component[] components
+	contains ESPIDFDependency[] dependencies
+}
