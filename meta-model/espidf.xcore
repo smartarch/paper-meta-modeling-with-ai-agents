@@ -14,7 +14,7 @@ enum Type {
 	CUSTOM
 }
 
-enum ConnectorKind {
+enum ConnectorStyle {
 	EVENT_PUBSUB
 	CALL
 }
@@ -168,7 +168,7 @@ class StateVariable extends Entity {
 }
 
 abstract class Connector extends Entity {
-	ConnectorKind connectorKind
+	ConnectorStyle connectorStyle
 	ConnectorRole role
 }
 
