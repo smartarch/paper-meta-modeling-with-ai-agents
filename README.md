@@ -1,7 +1,6 @@
 # Companion Package: Meta-Model-First Development with AI Coding Agents
 
-This repository contains the companion materials for the paper:
-
+This repository contains the companion materials for the paper: 
 **"Meta-Model-First Development with AI Coding Agents"**
 
 ## Overview
